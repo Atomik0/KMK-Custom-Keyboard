@@ -1,5 +1,6 @@
 import board
 import digitalio
+
 from kmk.kmk_keyboard import KMKKeyboard
 from kmk.keys import KC, KeyboardKey, ModifierKey
 from kmk.scanners import DiodeOrientation
@@ -12,12 +13,10 @@ keyboard = KMKKeyboard()
 keyboard.debug_enabled = True
 
 keyboard.row_pins = (board.GP6, board.GP7, board.GP8, board.GP9, board.GP10, board.GP11)
-
 keyboard.col_pins = (
     board.GP18, board.GP17, board.GP16, board.GP15, board.GP14, board.GP13, board.GP12,
     board.GP5,  board.GP4,  board.GP3,  board.GP2,  board.GP1,  board.GP0,  board.GP19
 )
-
 keyboard.diode_orientation = DiodeOrientation.COL2ROW
 
 try:
@@ -28,29 +27,78 @@ except ImportError:
 layers = Layers()
 keyboard.modules.append(layers)
 
-FN = KC.MO(1)
 RALT = ModifierKey(64)
-XXXXXXX = KC.NO
-
 ISO_LTGT = KeyboardKey(100)
 
-keyboard.keymap = [
-    [
-        KC.ESC,  KC.F1,  KC.F2,  KC.F3,  KC.F4,  KC.F5,  KC.F6,  KC.F7,  KC.F8,  KC.F9,  KC.F10, KC.F11, KC.F12, KC.PSCR, # --- FILA 0 (GP6)
-        KC.GRV,  KC.N1,  KC.N2,  KC.N3,  KC.N4,  KC.N5,  KC.N6,  KC.N7,  KC.N8,  KC.N9,  KC.N0,  KC.MINS, KC.EQL, KC.BSPC, # --- FILA 1 (GP7)
-        KC.TAB,  ISO_LTGT, KC.Q, KC.W, KC.E, KC.R, KC.T, KC.Y, KC.U, KC.I, KC.O, KC.P, KC.LBRC, KC.RBRC, # --- FILA 2 (GP8)
-        KC.CAPS, KC.NO,  KC.A, KC.S, KC.D, KC.F, KC.G, KC.H, KC.J, KC.K, KC.L, KC.SCLN, KC.QUOT, KC.ENT, # --- FILA 3 (GP9)
-        KC.LSFT, ISO_LTGT, KC.Z, KC.X, KC.C, KC.V, KC.B, KC.N, KC.M, KC.COMM, KC.DOT, KC.SLSH, KC.RSFT, KC.NO, # --- FILA 4 (GP10)
-        KC.LCTL, KC.LGUI, KC.LALT, KC.NO, KC.NO, KC.NO, KC.SPC, KC.NO, KC.NO, KC.NO, RALT, FN, KC.RCTL, KC.NO, # --- FILA 5 (GP11)
-    ], [
-        KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO,  # FILA 0
-        KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.DOWN, KC.NO, KC.NO,  # FILA 1
-        KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO,  # FILA 2
-        KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.UP,   KC.NO,  # FILA 3
-        KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.LEFT, KC.DOWN, KC.RIGHT, KC.NO, # FILA 4
-        KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO, KC.NO,  # FILA 5
-    ]
-]
+TOKEN_MAP = {
+    "RALT": RALT,
+    "ISO_LTGT": ISO_LTGT,
+}
+
+def _parse_key(token: str):
+    """
+    Soporta:
+    - KC.X (ej: "KC.A", "KC.ENT")
+    - MO(n) (ej: "MO(1)")
+    - Tokens especiales: "RALT", "ISO_LTGT"
+    - "KC.NO" / "KC.TRNS" etc.
+    """
+    if token is None:
+        return KC.NO
+
+    token = str(token).strip()
+    if token == "":
+        return KC.NO
+    
+    if token in TOKEN_MAP:
+        return TOKEN_MAP[token]
+    
+    if token.startswith("MO(") and token.endswith(")"):
+        n_str = token[3:-1].strip()
+        try:
+            layer_num = int(n_str)
+            return KC.MO(layer_num)
+        except:
+            return KC.NO
+        
+    if token.startswith("KC."):
+        name = token[3:].strip()
+        return getattr(KC, name, KC.NO)
+    
+    return KC.NO
+
+
+def load_keymap_from_json(path="keymap.json"):
+    try:
+        import json
+        with open(path, "r") as f:
+            data = json.load(f)
+
+        layers_data = data.get("layers", [])
+        if not layers_data or not isinstance(layers_data, list):
+            return None
+
+        loaded = []
+        for layer in layers_data:
+            flat = []
+            for row in layer:
+                for token in row:
+                    flat.append(_parse_key(token))
+            loaded.append(flat)
+
+        return loaded
+
+    except Exception as e:
+        print("ERROR loading keymap.json:", e)
+        return None
+    
+def default_keymap():
+    base = [KC.NO] * (6 * 14)
+    base[0] = KC.A
+    return [base]
+
+km = load_keymap_from_json("keymap.json")
+keyboard.keymap = km if km else default_keymap()
 
 if __name__ == "__main__":
     keyboard.go()
